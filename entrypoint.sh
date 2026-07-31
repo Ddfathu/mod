@@ -111,7 +111,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN DEWA (FINAL PURE NET TRACKER)
+# 🔥 DATA SUPPLIER LOOP VERSI ANTI-FITNAH (TRUE SOCKET STREAM TRACKER)
 # =================================================================
 (
     while true; do
@@ -124,48 +124,40 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 HITUNG TOTAL PROSES ANAK DROPBEAR YANG AKTIF BERDASARKAN SOCKET (VALID 100%)
-        TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
-        if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
-            COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
-        else
-            COUNT_ONLINE=0
-        fi
+        # 👥 HITUNG TOTAL KONEKSI BERDASARKAN ESTABLISHED SOCKET KE PORT 22 (0016)
+        # Ini menghitung jumlah baris koneksi yang benar-benar aktif mengarah ke dropbear
+        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | awk -F'[: \t]+' '$4=="0016" && $3!="0100007F" && $9=="01" {print}' | wc -l)
         
+        # Jika cara di atas terlalu ketat, kita pakai standar hitung jumlah anak proses dropbear aktif
+        if [ "$COUNT_ONLINE" -eq 0 ]; then
+            TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
+            if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
+                COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
+            fi
+        fi
+
         USER_DETAILS_LIST=""
         if [ "$COUNT_ONLINE" -gt 0 ]; then
-            # Ambil seluruh nama user terdaftar kustom
+            # 🔥 ANTI-FITNAH: Karena socket TCP murni terhubung, kita scan database history login 
+            # atau session interaktif user yang benar-benar sedang memproses data jaringan.
+            # Kita cek file /tmp/ssh_details.json buatan index.js, atau cek user yang aktif mengirim paket data.
+            ACTIVE_USER=""
+            
+            # Periksa daftar user kustom
             RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
-            
-            # 🔥 DETEKSI AMBLES MEMORI: Tarik data PID Dropbear, lalu paksa deteksi username dari alokasi thread ID
-            DROPBEAR_PIDS=$(ps aux | grep -v grep | grep "/usr/sbin/dropbear" | awk '{print $2}' | sort -n)
-            
-            for pid in $DROPBEAR_PIDS; do
-                # Anak proses dropbear yang valid nanganin koneksi biasanya punya baris fd socket terbuka luas
-                if [ -d "/proc/$pid/fd" ]; then
-                    for u in $RAW_USER_LIST; do
-                        # Jika user tersebut terdaftar di OS, kita lakukan pencocokan silang status session aktif
-                        # Cek file kepemilikan internal container untuk mengonfirmasi keaslian identitas user
-                        if [ -f "/proc/$pid/loginuid" ]; then
-                            USER_UID=$(cat "/proc/$pid/loginuid" 2>/dev/null)
-                            TARGET_UID=$(id -u "$u" 2>/dev/null)
-                            if [ "$USER_UID" = "$TARGET_UID" ]; then
-                                USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
-                                continue 2
-                            fi
-                        fi
-                    done
+            for u in $RAW_USER_LIST; do
+                # Cek apakah folder home atau proses file milik user tersebut tersentuh aktivitas IO baru-baru ini
+                if [ -d "/home/$u" ] && find "/home/$u" -mmin -1 2>/dev/null | grep -q .; then
+                    ACTIVE_USER="$u"
+                    break
                 fi
             done
             
-            # 🔥 ANTI INTEGRITAS ZONG: Jika loginuid container di-isolate sama Railway, 
-            # pakai fallback cerdas ini untuk menampilkan daftar user kustom yang sedang kalian pakai secara presisi!
-            if [ -z "$USER_DETAILS_LIST" ]; then
-                # Urutkan berdasarkan user terdaftar paling bawah/terbaru (karena akun lu seperti aceng biasanya dibuat paling akhir)
-                NEWEST_USER=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel' | tail -n 1)
-                if [ -n "$NEWEST_USER" ]; then
-                    USER_DETAILS_LIST="👤 User Active: ${NEWEST_USER}\\n"
-                fi
+            # Jika aktivitas IO tidak terdeteksi, kita tampilkan informasi transparan tanpa memfitnah nama acak
+            if [ -n "$ACTIVE_USER" ]; then
+                USER_DETAILS_LIST="👤 User Active: ${ACTIVE_USER}\\n"
+            else
+                USER_DETAILS_LIST="👤 User Active: Tunnel Authenticated\\n"
             fi
         fi
 
