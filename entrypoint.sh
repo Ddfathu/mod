@@ -57,9 +57,9 @@ cat << 'EOF' > /etc/dropbear_banner
 <center><font color="#FF0000">==================================================</font></center>
 EOF
 
-# PENTING: Jalankan dropbear dengan log syslog aktif (-E) agar auth.log terisi
+# Kembalikan ke konfigurasi dropbear standar tanpa parameter log aneh yang bikin crash
 echo "[*] Memulai Dropbear Server di Port Lokal 22..."
-/usr/sbin/dropbear -E -p 127.0.0.1:22 -b /etc/dropbear_banner -W 65536
+/usr/sbin/dropbear -p 127.0.0.1:22 -b /etc/dropbear_banner -W 65536
 sleep 1 
 
 echo "[*] Mengonfigurasi Stunnel..."
@@ -112,13 +112,9 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (LOG LOGIKA LOCK AUTH)
+# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (DYNAMIC SOCKET VERSI FINAL)
 # =================================================================
 (
-    # Pastikan file log buatan syslog ada dan bisa dibaca di lingkungan container
-    touch /var/log/auth.log
-    chmod 644 /var/log/auth.log
-
     while true; do
         CPU_MODEL=$(lscpu | grep 'Model name' | cut -d':' -f2 | sed -e 's/^[ \t]*//')
         [ -z "$CPU_MODEL" ] && CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d':' -f2 | sed -e 's/^[ \t]*//')
@@ -129,7 +125,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 Hitung jumlah anak proses Dropbear aktif yang melayani koneksi
+        # 👥 Hitung total anak proses Dropbear yang nyata melayani koneksi
         TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
         if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
             COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
@@ -137,29 +133,26 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
             COUNT_ONLINE=0
         fi
         
+        # 🔥 FIX JUJUR: Deteksi user dengan mencari ID proses shell/session dropbear yang terikat ke user kustom
         USER_DETAILS_LIST=""
         if [ "$COUNT_ONLINE" -gt 0 ]; then
-            # 🔥 INTELIJEN PARSING AUTH.LOG: Ambil baris sukses login paling terakhir dari dropbear
-            LAST_AUTH_USER=$(grep -i "Password auth succeeded for" /var/log/auth.log 2>/dev/null | tail -n 1 | sed -E "s/.*for '([^']+)'.*/\1/")
-            
-            # Jika terdeteksi di log sistem, langsung sah cetak namanya
-            if [ -n "$LAST_AUTH_USER" ]; then
-                USER_DETAILS_LIST="👤 User Active: ${LAST_AUTH_USER}\\n"
-            else
-                # Jika log telat berotasi, lacak balik nama user di session bash/shell aktif
-                RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
-                for u in $RAW_USER_LIST; do
-                    if ps aux | grep -v grep | grep -q "/bin/bash.*$u"; then
-                        USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
-                    fi
-                done
-            fi
+            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+            for u in $RAW_USER_LIST; do
+                # Melacak file deskriptor/proses dropbear yang dijalankan atas nama hak user ($u) itu sendiri
+                if ps aux | grep -v grep | grep -i "dropbear" | grep -qE "(\b$u\b)" || ps -u "$u" | grep -qE "dropbear|bash|sh"; then
+                    USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
+                fi
+            done
         fi
 
-        # Bersihkan string teks jika semua user terputus
+        # Jika nama gagal ketangkap tapi koneksi nyata di atas 0, kita pakai fallback dinamis non-permanen
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
-            USER_DETAILS_LIST="Semua user offline"
-            SSH_ONLINE="0 Users"
+            if [ "$COUNT_ONLINE" -gt 0 ]; then
+                USER_DETAILS_LIST="👤 User Active: Anggota Terhubung\\n"
+            else
+                USER_DETAILS_LIST="Semua user offline"
+            fi
+            SSH_ONLINE="${COUNT_ONLINE} Users"
         else
             SSH_ONLINE="${COUNT_ONLINE} Users"
         fi
