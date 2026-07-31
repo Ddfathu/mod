@@ -111,7 +111,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (PORT CONNECTION TRACKER)
+# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (FIX ACCURATE TRACKER)
 # =================================================================
 (
     while true; do
@@ -124,30 +124,31 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
+        # 👥 Hitung jumlah koneksi TCP established murni ke Dropbear lokal
         COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | grep -i '0100007F:0016' | wc -l)
         
         USER_DETAILS_LIST=""
         if [ "$COUNT_ONLINE" -gt 0 ]; then
             RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
             for u in $RAW_USER_LIST; do
-                # 🔥 FIX PRESET & LOCK USER SECARA MUTLAK (Anti ketuker dd dan dd12)
-                if pgrep -u "$u" &>/dev/null; then
+                # 🔥 TRACKER PROSES SAKTI: Menggunakan batas kata (\b) agar user mirip tidak bentrok
+                if ps aux | grep -v grep | grep -qE "\bdropbear\b.*\b$u\b|\b$u\b.*sshd|\b$u\b.*bash"; then
                     USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
                 fi
             done
         fi
 
+        # Kembalikan string format Users agar klop di-replace di web panel
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
             USER_DETAILS_LIST="Semua user offline"
-            SSH_ONLINE="0 Koneksi"
+            SSH_ONLINE="0 Users"
         else
-            SSH_ONLINE="${COUNT_ONLINE} Koneksi"
+            SSH_ONLINE="${COUNT_ONLINE} Users"
         fi
 
         CUSTOM_DOM="${D:-}"
         RLWY_DOM="${SNI:-}"
         
-        # 🌟 LOGIKA CERDAS: Isi statistik json dengan proxy otomatis Railway jika tersedia
         if [ -n "$RAILWAY_TCP_PROXY_DOMAIN" ] && [ -n "$RAILWAY_TCP_PROXY_PORT" ]; then
             RLWY_DOM="${RAILWAY_TCP_PROXY_DOMAIN}:${RAILWAY_TCP_PROXY_PORT}"
         fi
@@ -173,7 +174,6 @@ EOF
 echo "[*] Memulai Web Dashboard Panel (Node.js Engine) di Port 8081..."
 export D="${D}"
 export SNI="${SNI}"
-# 🔥 NANEM OTOMATIS: Loloskan variabel TCP internal Railway ke process.env Node.js global
 export RAILWAY_TCP_PROXY_DOMAIN="${RAILWAY_TCP_PROXY_DOMAIN}"
 export RAILWAY_TCP_PROXY_PORT="${RAILWAY_TCP_PROXY_PORT}"
 node index.js &
