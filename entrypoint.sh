@@ -80,7 +80,7 @@ echo "[*] Memulai WS-Proxy (JavaScript)..."
 export WS_PORT="$WS_INTERNAL_PORT"
 node ws-proxy.js &
 
-# --- JALANKAN BADVPN UDPGW UNTUK GAME MODE ---
+# --- 🔥 UTAMA: JALANKAN BADVPN UDPGW UNTUK GAME MODE 🔥 ---
 if [ -f /usr/local/bin/badvpn-udpgw ]; then
     echo "[*] Memulai BadVPN udpgw di Port Lokal 7300..."
     /usr/local/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 500 --max-connections-for-client 20 &
@@ -94,13 +94,13 @@ fi
 
 sleep 2
 
-# Download binary cloudflared resmi langsung ke system bin
+# 🌟 MANDIRI: Download binary cloudflared resmi langsung ke system bin
 echo "[*] Mengunduh binary cloudflared resmi..."
 curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /usr/local/bin/cloudflared
 
-# --- PUSAT EKSEKUSI TUNNEL ---
+# --- 🔥 PUSAT EKSEKUSI TUNNEL MURNI SEHAT 🔥 ---
 if [ -n "$CF" ]; then
-    echo "[*] Menjalankan Cloudflare Named Tunnel..."
+    echo "[*] Menjalankan Cloudflare Named Tunnel (Argo Token Mode)..."
     /usr/local/bin/cloudflared tunnel run --protocol http2 --no-tls-verify --token "$CF" > /tmp/named_tunnel.log 2>&1 &
 fi
 
@@ -108,7 +108,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔄 KEMBALI KE ENGINE TRACKER ASLI LU YANG TEMBUS KONEKSI BROWSER
+# 🔥 DATA SUPPLIER LOOP VERSI ORIGINAL LU (FIX TULISAN KONEKSI)
 # =================================================================
 (
     while true; do
@@ -121,25 +121,24 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # Ini tracker murni bawaan awal lu bos yang bisa baca koneksi browser & deteksi nama akurat
-        RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | grep -i '0100007F:0016' | wc -l)
         
-        COUNT_ONLINE=0
         USER_DETAILS_LIST=""
-        
-        for u in $RAW_USER_LIST; do
-            # Logika awal lu yang terbukti tembus tanpa tebak-tebakan
-            if ps aux | grep -v grep | grep -q "$u"; then
-                USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
-                COUNT_ONLINE=$((COUNT_ONLINE + 1))
-            fi
-        done
+        if [ "$COUNT_ONLINE" -gt 0 ]; then
+            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu')
+            for u in $RAW_USER_LIST; do
+                if ps aux | grep -i "$u" | grep -v grep &>/dev/null; then
+                    USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
+                fi
+            done
+        fi
 
+        # 🔥 PENGUBAHAN TULISAN: Diubah murni menjadi Koneksi sesuai keinginan Bos
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
             USER_DETAILS_LIST="Semua user offline"
-            SSH_ONLINE="0"
+            SSH_ONLINE="0 Koneksi"
         else
-            SSH_ONLINE="$COUNT_ONLINE"
+            SSH_ONLINE="${COUNT_ONLINE} Koneksi"
         fi
 
         CUSTOM_DOM="${D:-}"
@@ -156,7 +155,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
   "ram_used": "$RAM_USED",
   "disk_usage": "$DISK_USAGE",
   "uptime": "$UPTIME",
-  "ssh_online": "$SSH_ONLINE",
+  "ssh_online": "👥 $SSH_ONLINE Active",
   "user_list_details": "$USER_DETAILS_LIST",
   "custom_domain": "$CUSTOM_DOM",
   "railway_proxy": "$RLWY_DOM"
@@ -166,6 +165,7 @@ EOF
     done
 ) &
 
+# 🔥 JALANKAN WEB DASHBOARD PANEL NODE.JS DI PORT 8081
 echo "[*] Memulai Web Dashboard Panel (Node.js Engine) di Port 8081..."
 export D="${D}"
 export SNI="${SNI}"
@@ -175,7 +175,8 @@ node index.js &
 
 sleep 2
 
-echo "[*] Memulai Muxer Utama..."
+# =================================================================
+echo "[*] Memulai Muxer Utama (JavaScript)..."
 export PORT="$PUBLIC_PORT"
 export SSL_TARGET_PORT="$SSL_INTERNAL_PORT"
 export WS_TARGET_PORT="$WS_INTERNAL_PORT"
