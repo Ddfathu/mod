@@ -124,21 +124,23 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 Hitung jumlah koneksi TCP established murni ke Dropbear lokal
-        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | grep -i '0100007F:0016' | wc -l)
-        
         USER_DETAILS_LIST=""
-        if [ "$COUNT_ONLINE" -gt 0 ]; then
-            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
-            for u in $RAW_USER_LIST; do
-                # 🔥 TRACKER PROSES SAKTI: Menggunakan batas kata (\b) agar user mirip tidak bentrok
-                if ps aux | grep -v grep | grep -qE "\bdropbear\b.*\b$u\b|\b$u\b.*sshd|\b$u\b.*bash"; then
-                    USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
-                fi
-            done
-        fi
+        COUNT_ONLINE=0
 
-        # Kembalikan string format Users agar klop di-replace di web panel
+        RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+        
+        for u in $RAW_USER_LIST; do
+            # 🔥 PENGHITUNG REAL-TIME: Cari anak proses dropbear yang melayani nama user secara presisi (\b)
+            # Logika ini melacak session aktif per user yang terhubung dari tunnel/proxy manapun
+            USER_SESSIONS=$(ps aux | grep -v grep | grep -E "\bdropbear\b.*\b$u\b|\b$u\b.*sshd|\b$u\b.*bash" | wc -l)
+            
+            if [ "$USER_SESSIONS" -gt 0 ]; then
+                USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u} (${USER_SESSIONS} Conn)\\n"
+                COUNT_ONLINE=$((COUNT_ONLINE + USER_SESSIONS))
+            fi
+        done
+
+        # Sinkronisasi string format Users agar terbaca sempurna di index.js
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
             USER_DETAILS_LIST="Semua user offline"
             SSH_ONLINE="0 Users"
