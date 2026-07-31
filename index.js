@@ -209,7 +209,7 @@ const server = http.createServer((req, res) => {
     if (pathName === '/api/stats') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         let quickUrl = "Menunggu Quick Tunnel siap...";
-        let hwInfo = { cpu_model: "Loading...", ram_total: "0", ram_used: "0", disk_usage: "0%", uptime: "0", ssh_online: "0", user_list_details: "", custom_domain: "", railway_proxy: "" };
+        let hwInfo = { cpu_model: "Loading...", ram_total: "0", ram_used: "0", disk_usage: "0%", uptime: "0", ssh_online: "👥 0 Users Active", user_list_details: "Semua user offline", custom_domain: "", railway_proxy: "" };
         
         if (fs.existsSync(STATS_PATH)) {
             try {
@@ -235,17 +235,14 @@ const server = http.createServer((req, res) => {
         } else if (process.env.SNI) {
             rlwyUrl = process.env.SNI.replace(/https?:\/\//i, '').replace(/\/$/, '');
         }
-        
-        let cleanOnlineStr = String(hwInfo.ssh_online).replace(/👥/g, '').replace(/Active/g, '').replace(/Users/g, '').replace(/Koneksi/g, '').trim();
-        if(!cleanOnlineStr || cleanOnlineStr === "undefined") cleanOnlineStr = "0";
 
+        // 🔥 FIX SAKTI: Biarkan string utuh dari entrypoint.sh mengalir langsung ke UI
         const responseData = { 
             quick_url: quickUrl, 
             named_url: namedUrl, 
             railway_url: rlwyUrl, 
             status: "ONLINE", 
-            ...hwInfo,
-            ssh_online: cleanOnlineStr 
+            ...hwInfo
         };
         res.end(JSON.stringify(responseData));
         return;
@@ -429,8 +426,12 @@ const server = http.createServer((req, res) => {
                         
                         let detailActiveList = data.user_list_details || "Semua user offline";
                         
-                        let connectionCount = data.ssh_online || "0";
-                        document.getElementById('ssh').innerHTML = "👥 " + connectionCount + " Koneksi Active<br><span style='font-size:11px; font-weight:normal; color:#d8b4fe; display:block; margin-top:5px; white-space:pre-line;'>" + detailActiveList + "</span>";
+                        // 🔥 REKAYASA FRONTEND: Ambil string mentah "👥 X Users Active", saring angkanya saja
+                        let rawStr = data.ssh_online || "0";
+                        let numMatch = rawStr.match(/\\d+/);
+                        let finalCount = numMatch ? numMatch[0] : "0";
+                        
+                        document.getElementById('ssh').innerHTML = "👥 " + finalCount + " Koneksi Active<br><span style='font-size:11px; font-weight:normal; color:#d8b4fe; display:block; margin-top:5px; white-space:pre-line;'>" + detailActiveList + "</span>";
                         
                         document.getElementById('named-url').innerText = data.named_url;
                         document.getElementById('railway-url').innerText = data.railway_url;
