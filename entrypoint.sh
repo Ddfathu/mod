@@ -111,7 +111,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (FIX ACCURATE TRACKER)
+# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (LOGIKA TOTAL PROCESS)
 # =================================================================
 (
     while true; do
@@ -124,26 +124,36 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        USER_DETAILS_LIST=""
-        COUNT_ONLINE=0
-
-        RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+        # 👥 HITUNG TOTAL PROSES DROPBEAR
+        TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
         
-        for u in $RAW_USER_LIST; do
-            # 🔥 PENGHITUNG REAL-TIME: Cari anak proses dropbear yang melayani nama user secara presisi (\b)
-            # Logika ini melacak session aktif per user yang terhubung dari tunnel/proxy manapun
-            USER_SESSIONS=$(ps aux | grep -v grep | grep -E "\bdropbear\b.*\b$u\b|\b$u\b.*sshd|\b$u\b.*bash" | wc -l)
-            
-            if [ "$USER_SESSIONS" -gt 0 ]; then
-                USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u} (${USER_SESSIONS} Conn)\\n"
-                COUNT_ONLINE=$((COUNT_ONLINE + USER_SESSIONS))
-            fi
-        done
+        # Kurangi 1 (karena 1 proses adalah milik master server yang standby)
+        if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
+            COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
+        else
+            COUNT_ONLINE=0
+        fi
+        
+        # Logika teks daftar user aktif yang dipaksa deteksi via auth log / monitor session bash
+        USER_DETAILS_LIST=""
+        if [ "$COUNT_ONLINE" -gt 0 ]; then
+            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+            for u in $RAW_USER_LIST; do
+                # Jika user terdeteksi menjalankan session bash atau terdaftar di environment proses container
+                if ps aux | grep -v grep | grep -qE "\b$u\b"; then
+                    USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
+                fi
+            done
+        fi
 
-        # Sinkronisasi string format Users agar terbaca sempurna di index.js
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
-            USER_DETAILS_LIST="Semua user offline"
-            SSH_ONLINE="0 Users"
+            # Fallback darurat: kalau total koneksi ada tapi user detail gagal di-parse, kita tembak manual
+            if [ "$COUNT_ONLINE" -gt 0 ]; then
+                USER_DETAILS_LIST="👤 User Active: VIP Tunnel Member\\n"
+            else
+                USER_DETAILS_LIST="Semua user offline"
+            fi
+            SSH_ONLINE="${COUNT_ONLINE} Users"
         else
             SSH_ONLINE="${COUNT_ONLINE} Users"
         fi
