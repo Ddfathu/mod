@@ -80,7 +80,7 @@ echo "[*] Memulai WS-Proxy (JavaScript)..."
 export WS_PORT="$WS_INTERNAL_PORT"
 node ws-proxy.js &
 
-# --- 🔥 UTAMA: JALANKAN BADVPN UDPGW UNTUK GAME MODE 🔥 ---
+# --- JALANKAN BADVPN UDPGW UNTUK GAME MODE ---
 if [ -f /usr/local/bin/badvpn-udpgw ]; then
     echo "[*] Memulai BadVPN udpgw di Port Lokal 7300..."
     /usr/local/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 500 --max-connections-for-client 20 &
@@ -94,24 +94,21 @@ fi
 
 sleep 2
 
-# 🌟 MANDIRI: Download binary cloudflared resmi langsung ke system bin
+# Download binary cloudflared resmi langsung ke system bin
 echo "[*] Mengunduh binary cloudflared resmi..."
 curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /usr/local/bin/cloudflared
 
-# --- 🔥 PUSAT EKSEKUSI TUNNEL MURNI SEHAT 🔥 ---
-
-# 1. Named Tunnel (Argo Token Mode)
+# --- PUSAT EKSEKUSI TUNNEL ---
 if [ -n "$CF" ]; then
-    echo "[*] Menjalankan Cloudflare Named Tunnel (Argo Token Mode)..."
+    echo "[*] Menjalankan Cloudflare Named Tunnel..."
     /usr/local/bin/cloudflared tunnel run --protocol http2 --no-tls-verify --token "$CF" > /tmp/named_tunnel.log 2>&1 &
 fi
 
-# 2. Quick Tunnel (Link Acak Engine)
 echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI ANTI-FITNAH (TRUE SOCKET STREAM TRACKER)
+# 🔄 KEMBALI KE ENGINE TRACKER ASLI LU YANG TEMBUS KONEKSI BROWSER
 # =================================================================
 (
     while true; do
@@ -124,48 +121,25 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 HITUNG TOTAL KONEKSI BERDASARKAN ESTABLISHED SOCKET KE PORT 22 (0016)
-        # Ini menghitung jumlah baris koneksi yang benar-benar aktif mengarah ke dropbear
-        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | awk -F'[: \t]+' '$4=="0016" && $3!="0100007F" && $9=="01" {print}' | wc -l)
+        # Ini tracker murni bawaan awal lu bos yang bisa baca koneksi browser & deteksi nama akurat
+        RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
         
-        # Jika cara di atas terlalu ketat, kita pakai standar hitung jumlah anak proses dropbear aktif
-        if [ "$COUNT_ONLINE" -eq 0 ]; then
-            TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
-            if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
-                COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
-            fi
-        fi
-
+        COUNT_ONLINE=0
         USER_DETAILS_LIST=""
-        if [ "$COUNT_ONLINE" -gt 0 ]; then
-            # 🔥 ANTI-FITNAH: Karena socket TCP murni terhubung, kita scan database history login 
-            # atau session interaktif user yang benar-benar sedang memproses data jaringan.
-            # Kita cek file /tmp/ssh_details.json buatan index.js, atau cek user yang aktif mengirim paket data.
-            ACTIVE_USER=""
-            
-            # Periksa daftar user kustom
-            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
-            for u in $RAW_USER_LIST; do
-                # Cek apakah folder home atau proses file milik user tersebut tersentuh aktivitas IO baru-baru ini
-                if [ -d "/home/$u" ] && find "/home/$u" -mmin -1 2>/dev/null | grep -q .; then
-                    ACTIVE_USER="$u"
-                    break
-                fi
-            done
-            
-            # Jika aktivitas IO tidak terdeteksi, kita tampilkan informasi transparan tanpa memfitnah nama acak
-            if [ -n "$ACTIVE_USER" ]; then
-                USER_DETAILS_LIST="👤 User Active: ${ACTIVE_USER}\\n"
-            else
-                USER_DETAILS_LIST="👤 User Active: Tunnel Authenticated\\n"
+        
+        for u in $RAW_USER_LIST; do
+            # Logika awal lu yang terbukti tembus tanpa tebak-tebakan
+            if ps aux | grep -v grep | grep -q "$u"; then
+                USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
+                COUNT_ONLINE=$((COUNT_ONLINE + 1))
             fi
-        fi
+        done
 
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
             USER_DETAILS_LIST="Semua user offline"
-            SSH_ONLINE="0 Users"
+            SSH_ONLINE="0"
         else
-            SSH_ONLINE="${COUNT_ONLINE} Users"
+            SSH_ONLINE="$COUNT_ONLINE"
         fi
 
         CUSTOM_DOM="${D:-}"
@@ -182,7 +156,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
   "ram_used": "$RAM_USED",
   "disk_usage": "$DISK_USAGE",
   "uptime": "$UPTIME",
-  "ssh_online": "👥 $SSH_ONLINE Active",
+  "ssh_online": "$SSH_ONLINE",
   "user_list_details": "$USER_DETAILS_LIST",
   "custom_domain": "$CUSTOM_DOM",
   "railway_proxy": "$RLWY_DOM"
@@ -192,7 +166,6 @@ EOF
     done
 ) &
 
-# 🔥 JALANKAN WEB DASHBOARD PANEL NODE.JS DI PORT 8081
 echo "[*] Memulai Web Dashboard Panel (Node.js Engine) di Port 8081..."
 export D="${D}"
 export SNI="${SNI}"
@@ -202,8 +175,7 @@ node index.js &
 
 sleep 2
 
-# =================================================================
-echo "[*] Memulai Muxer Utama (JavaScript)..."
+echo "[*] Memulai Muxer Utama..."
 export PORT="$PUBLIC_PORT"
 export SSL_TARGET_PORT="$SSL_INTERNAL_PORT"
 export WS_TARGET_PORT="$WS_INTERNAL_PORT"
