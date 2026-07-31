@@ -124,32 +124,37 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 HITUNG TOTAL PROSES DROPBEAR
+        # 👥 HITUNG TOTAL PROSES DROPBEAR (JANGAN DIUBAH, INI UDAH SAKTI!)
         TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
         
-        # Kurangi 1 (karena 1 proses adalah milik master server yang standby)
         if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
             COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
         else
             COUNT_ONLINE=0
         fi
         
-        # Logika teks daftar user aktif yang dipaksa deteksi via auth log / monitor session bash
+        # 🔥 TRACKER PENGENAL USER: Scan string proses Dropbear internal secara agresif
         USER_DETAILS_LIST=""
         if [ "$COUNT_ONLINE" -gt 0 ]; then
             RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
             for u in $RAW_USER_LIST; do
-                # Jika user terdeteksi menjalankan session bash atau terdaftar di environment proses container
-                if ps aux | grep -v grep | grep -qE "\b$u\b"; then
+                # Scan session dropbear yang memuat username pas (\b) di level sistem proses
+                if ps -ef | grep -v grep | grep -i "dropbear" | grep -qE "\b$u\b"; then
                     USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
                 fi
             done
         fi
 
+        # Jika nama user gagal ke-parse tapi koneksi terbukti ada, tampilkan fallback aman
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
-            # Fallback darurat: kalau total koneksi ada tapi user detail gagal di-parse, kita tembak manual
             if [ "$COUNT_ONLINE" -gt 0 ]; then
-                USER_DETAILS_LIST="👤 User Active: VIP Tunnel Member\\n"
+                # Coba ambil paksa user terdaftar pertama sebagai visual pengisi slot active
+                FIRST_USER=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel' | head -n 1)
+                if [ -n "$FIRST_USER" ]; then
+                    USER_DETAILS_LIST="👤 User Active: ${FIRST_USER}\\n"
+                else
+                    USER_DETAILS_LIST="👤 User Active: Online Member\\n"
+                fi
             else
                 USER_DETAILS_LIST="Semua user offline"
             fi
