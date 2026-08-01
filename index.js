@@ -10,8 +10,10 @@ const NAMED_LOG_PATH = "/tmp/named_tunnel.log";
 const STATS_PATH = "/tmp/server_stats.json";
 const DB_PATH = "/tmp/ssh_details.json";
 
+// Password Admin diambil dari Environment Variable Railway, defaultnya 'admin123'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 
+// Fungsi pembantu membaca database rahasia admin
 function loadDb() {
     if (fs.existsSync(DB_PATH)) {
         try {
@@ -23,13 +25,22 @@ function loadDb() {
     return {};
 }
 
+// Fungsi pembantu menyimpan database rahasia admin
 function saveDb(data) {
     try {
         fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
     } catch (e) {}
 }
 
+// Mengambil domain aktif untuk struk akun
 function getCurrentHosts() {
+    let hwInfo = {};
+    if (fs.existsSync(STATS_PATH)) {
+        try {
+            hwInfo = JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
+        } catch (e) {}
+    }
+
     const namedUrl = process.env.D || "";
     let quickUrl = "Menunggu Quick Tunnel...";
     
@@ -46,7 +57,11 @@ function getCurrentHosts() {
     let hostOutput = "";
     if (namedUrl) hostOutput += `${namedUrl.replace(/https?:\/\//, '')} (gunakan url ini untuk server ssh websocket)`;
     
-    if (process.env.RAILWAY_TCP_PROXY_DOMAIN && process.env.RAILWAY_TCP_PROXY_PORT) {
+    // 🔥 FIX: Deteksi TCP Proxy Dinamis dari JSON Tracker untuk Struk Akun
+    if (hwInfo.railway_proxy && hwInfo.railway_proxy.trim() !== "") {
+        const autoTcp = hwInfo.railway_proxy;
+        hostOutput += hostOutput ? ` dan ${autoTcp} (gunakan url dan port ini untuk SSH SNI murni stunnel)` : `${autoTcp} (gunakan url dan port ini untuk SSH SNI murni stunnel)`;
+    } else if (process.env.RAILWAY_TCP_PROXY_DOMAIN && process.env.RAILWAY_TCP_PROXY_PORT) {
         const autoTcp = `${process.env.RAILWAY_TCP_PROXY_DOMAIN}:${process.env.RAILWAY_TCP_PROXY_PORT}`;
         hostOutput += hostOutput ? ` dan ${autoTcp} (gunakan url dan port ini untuk SSH SNI murni stunnel)` : `${autoTcp} (gunakan url dan port ini untuk SSH SNI murni stunnel)`;
     } else if (process.env.SNI) {
@@ -58,6 +73,7 @@ function getCurrentHosts() {
     return hostOutput;
 }
 
+// 🛠️ FITUR MANAGEMENT SSH (UBUNTU / DROPBEAR MODE)
 function listSsh() {
     try {
         const users = [];
@@ -67,11 +83,12 @@ function listSsh() {
         
         for (let line of lines) {
             if (!line.trim()) continue;
-            const parts = line.strip ? line.strip().split(':') : line.split(':');
+            const parts = line.split(':'); // FIX: Menghapus method .strip() ilegal
             const username = parts[0];
             const uid = parseInt(parts[2], 10);
             const shell = parts[parts.length - 1];
             
+            // Mengabaikan user bawaan sistem Ubuntu, Stunnel, dan Dropbear
             if (uid >= 1000 && !["nobody", "ubuntu", "sshd", "dropbear", "stunnel"].includes(username)) {
                 const extra = dbInfo[username] || { password: "-", ip: "Unknown", user_agent: "Unknown" };
                 users.push({
@@ -92,8 +109,9 @@ function addSsh(username, password, ipAddr, userAgent) {
     if (!username || !password) {
         return { status: "error", message: "Username dan password wajib diisi!" };
     }
-    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-        return { status: "error", message: "Username mengandung karakter ilegal!" };
+    // 安全性 SECURITY FIX: Validasi ketat Regex untuk username DAN password (anti command injection)
+    if (!/^[a-zA-Z0-9_-]+$/.test(username) || !/^[a-zA-Z0-9_@.-]+$/.test(password)) {
+        return { status: "error", message: "Username atau Password mengandung karakter ilegal!" };
     }
     
     try {
@@ -131,6 +149,9 @@ function deleteSsh(username) {
     if (!username) {
         return { status: "error", message: "Username wajib diisi!" };
     }
+    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+        return { status: "error", message: "Username ilegal!" };
+    }
     try {
         execSync(`userdel -r ${username}`);
         
@@ -145,6 +166,7 @@ function deleteSsh(username) {
     }
 }
 
+// PEMBUATAN HTTP SERVER ENGINE 
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const pathName = parsedUrl.pathname;
@@ -209,7 +231,7 @@ const server = http.createServer((req, res) => {
     if (pathName === '/api/stats') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         let quickUrl = "Menunggu Quick Tunnel siap...";
-        let hwInfo = { cpu_model: "Loading...", ram_total: "0", ram_used: "0", disk_usage: "0%", uptime: "0", ssh_online: "👥 0 Users Active", user_list_details: "Semua user offline", custom_domain: "", railway_proxy: "" };
+        let hwInfo = { cpu_model: "Loading...", ram_total: "0", ram_used: "0", disk_usage: "0%", uptime: "0", ssh_online: "0", user_list_details: "", custom_domain: "", railway_proxy: "" };
         
         if (fs.existsSync(STATS_PATH)) {
             try {
@@ -229,27 +251,35 @@ const server = http.createServer((req, res) => {
             namedUrl = process.env.D.replace(/https?:\/\//i, '').replace(/\/$/, '');
         }
         
+        // 🔥 FIX UTAMA: Utamakan membaca data 'railway_proxy' yang ditulis dinamis oleh loop bash entrypoint.sh
         let rlwyUrl = "Tidak Aktif (TCP Proxy Belum Ditambah)";
-        if (process.env.RAILWAY_TCP_PROXY_DOMAIN && process.env.RAILWAY_TCP_PROXY_PORT) {
+        if (hwInfo.railway_proxy && hwInfo.railway_proxy.trim() !== "") {
+            rlwyUrl = hwInfo.railway_proxy;
+        } else if (process.env.RAILWAY_TCP_PROXY_DOMAIN && process.env.RAILWAY_TCP_PROXY_PORT) {
             rlwyUrl = `${process.env.RAILWAY_TCP_PROXY_DOMAIN}:${process.env.RAILWAY_TCP_PROXY_PORT}`;
         } else if (process.env.SNI) {
             rlwyUrl = process.env.SNI.replace(/https?:\/\//i, '').replace(/\/$/, '');
         }
+        
+        let cleanOnlineStr = String(hwInfo.ssh_online).replace(/👥/g, '').replace(/Active/g, '').replace(/Users/g, '').trim();
+        if(!cleanOnlineStr || cleanOnlineStr === "undefined") cleanOnlineStr = "0";
 
-        // 🔥 FIX SAKTI: Biarkan string utuh dari entrypoint.sh mengalir langsung ke UI
         const responseData = { 
             quick_url: quickUrl, 
             named_url: namedUrl, 
             railway_url: rlwyUrl, 
             status: "ONLINE", 
-            ...hwInfo
+            ...hwInfo,
+            ssh_online: cleanOnlineStr
         };
         res.end(JSON.stringify(responseData));
         return;
     }
     
+    // RENDER UI DASHBOARD UTAMA HTML LU BOS
     if (pathName === '/' || pathName === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        // HTML bawaan lu tetap dipertahankan tanpa perubahan struktur
         const html = `
         <!DOCTYPE html>
         <html lang="id">
@@ -313,7 +343,7 @@ const server = http.createServer((req, res) => {
                     <div class="stat-card"><div class="stat-title">RAM Used / Total</div><div class="stat-value" id="ram">Loading...</div></div>
                     <div class="stat-card"><div class="stat-title">Disk Usage (/)</div><div class="stat-value" id="disk">Loading...</div></div>
                     <div class="stat-card"><div class="stat-title">Server Uptime</div><div class="stat-value" id="uptime" style="font-size:12px;">Loading...</div></div>
-                    <div class="stat-card" style="border-color: #a855f7;"><div class="stat-title" style="color:#d8b4fe;">SSH Active Connections</div><div class="stat-value" id="ssh" style="font-size:14px; color:#a855f7; line-height:1.3;">👥 0 Koneksi</div></div>
+                    <div class="stat-card" style="border-color: #a855f7;"><div class="stat-title" style="color:#d8b4fe;">SSH Online Users</div><div class="stat-value" id="ssh" style="font-size:14px; color:#a855f7; line-height:1.3;">👥 0 Users</div></div>
                 </div>
 
                 <div class="ssh-manager">
@@ -346,9 +376,9 @@ const server = http.createServer((req, res) => {
                 </div>
 
                 <div class="url-section" style="border-color: #f43f5e;">
-                    <div class="url-title" style="color: #fb7185;">Server SNI</div>
+                    <div class="url-title" style="color: #fb7185;">Server SNI/Stunnel SNI MURNI</div>
                     <div class="url-box" id="railway-url" style="color: #f43f5e;">Loading...</div>
-                    <button class="btn-copy" id="btn-copy-railway" style="background:#f43f5e; color:#fff;" onclick="copyTxt('railway-url', 'btn-copy-railway')">📋 COPY ALAMAT TCP PROXY</button>
+                    <button class="btn-copy" id="btn-copy-railway" style="background:#f43f5e; color:#fff;" onclick="copyTxt('railway-url', 'btn-copy-railway')">📋 COPY SERVER SSH SNI/STUNNEL</button>
                 </div>
 
                 <div class="url-section">
@@ -416,22 +446,12 @@ const server = http.createServer((req, res) => {
                         let res = await fetch('/api/stats');
                         let data = await res.json();
                         document.getElementById('cpu').innerText = data.cpu_model;
-                        
-                        let cleanRamUsed = String(data.ram_used).replace(/Gi/gi, ' GB');
-                        let cleanRamTotal = String(data.ram_total).replace(/Gi/gi, ' GB');
-                        document.getElementById('ram').innerText = cleanRamUsed + " / " + cleanRamTotal;
-                        
+                        document.getElementById('ram').innerText = data.ram_used + " / " + data.ram_total;
                         document.getElementById('disk').innerText = data.disk_usage;
                         document.getElementById('uptime').innerText = data.uptime;
                         
                         let detailActiveList = data.user_list_details || "Semua user offline";
-                        
-                        // 🔥 REKAYASA FRONTEND: Ambil string mentah "👥 X Users Active", saring angkanya saja
-                        let rawStr = data.ssh_online || "0";
-                        let numMatch = rawStr.match(/\\d+/);
-                        let finalCount = numMatch ? numMatch[0] : "0";
-                        
-                        document.getElementById('ssh').innerHTML = "👥 " + finalCount + " Koneksi Active<br><span style='font-size:11px; font-weight:normal; color:#d8b4fe; display:block; margin-top:5px; white-space:pre-line;'>" + detailActiveList + "</span>";
+                        document.getElementById('ssh').innerHTML = "👥 " + data.ssh_online + " Users Active<br><span style='font-size:11px; font-weight:normal; color:#d8b4fe; display:block; margin-top:5px; white-space:pre-line;'>" + detailActiveList + "</span>";
                         
                         document.getElementById('named-url').innerText = data.named_url;
                         document.getElementById('railway-url').innerText = data.railway_url;
@@ -576,6 +596,7 @@ const server = http.createServer((req, res) => {
         return;
     }
     
+    // Default 404
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end("Not Found");
 });
