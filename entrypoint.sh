@@ -111,7 +111,7 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 /usr/local/bin/cloudflared tunnel --url "http://127.0.0.1:$PUBLIC_PORT" --protocol http2 > /tmp/cloudflared.log 2>&1 &
 
 # =================================================================
-# 🔥 DATA SUPPLIER LOOP VERSI ANTI-FITNAH (TRUE SOCKET STREAM TRACKER)
+# 🔥 DATA SUPPLIER LOOP VERSI INTELIJEN SAKTI (PORT CONNECTION TRACKER)
 # =================================================================
 (
     while true; do
@@ -124,41 +124,16 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
         DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
         UPTIME=$(uptime -p | sed 's/up //')
         
-        # 👥 HITUNG TOTAL KONEKSI BERDASARKAN ESTABLISHED SOCKET KE PORT 22 (0016)
-        # Ini menghitung jumlah baris koneksi yang benar-benar aktif mengarah ke dropbear
-        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | awk -F'[: \t]+' '$4=="0016" && $3!="0100007F" && $9=="01" {print}' | wc -l)
+        COUNT_ONLINE=$(cat /proc/net/tcp 2>/dev/null | grep -i '0100007F:0016' | wc -l)
         
-        # Jika cara di atas terlalu ketat, kita pakai standar hitung jumlah anak proses dropbear aktif
-        if [ "$COUNT_ONLINE" -eq 0 ]; then
-            TOTAL_DROPBEAR_PROCS=$(ps aux | grep -v grep | grep -c "/usr/sbin/dropbear")
-            if [ "$TOTAL_DROPBEAR_PROCS" -gt 1 ]; then
-                COUNT_ONLINE=$((TOTAL_DROPBEAR_PROCS - 1))
-            fi
-        fi
-
         USER_DETAILS_LIST=""
         if [ "$COUNT_ONLINE" -gt 0 ]; then
-            # 🔥 ANTI-FITNAH: Karena socket TCP murni terhubung, kita scan database history login 
-            # atau session interaktif user yang benar-benar sedang memproses data jaringan.
-            # Kita cek file /tmp/ssh_details.json buatan index.js, atau cek user yang aktif mengirim paket data.
-            ACTIVE_USER=""
-            
-            # Periksa daftar user kustom
-            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu|sshd|dropbear|stunnel')
+            RAW_USER_LIST=$(cat /etc/passwd | awk -F: '$3>=1000 {print $1}' | grep -v -E 'nobody|ubuntu')
             for u in $RAW_USER_LIST; do
-                # Cek apakah folder home atau proses file milik user tersebut tersentuh aktivitas IO baru-baru ini
-                if [ -d "/home/$u" ] && find "/home/$u" -mmin -1 2>/dev/null | grep -q .; then
-                    ACTIVE_USER="$u"
-                    break
+                if ps aux | grep -i "$u" | grep -v grep &>/dev/null; then
+                    USER_DETAILS_LIST="${USER_DETAILS_LIST}👤 User Active: ${u}\\n"
                 fi
             done
-            
-            # Jika aktivitas IO tidak terdeteksi, kita tampilkan informasi transparan tanpa memfitnah nama acak
-            if [ -n "$ACTIVE_USER" ]; then
-                USER_DETAILS_LIST="👤 User Active: ${ACTIVE_USER}\\n"
-            else
-                USER_DETAILS_LIST="👤 User Active: Tunnel Authenticated\\n"
-            fi
         fi
 
         if [ -z "$USER_DETAILS_LIST" ] || [ "$COUNT_ONLINE" -eq 0 ]; then
@@ -170,10 +145,6 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
 
         CUSTOM_DOM="${D:-}"
         RLWY_DOM="${SNI:-}"
-        
-        if [ -n "$RAILWAY_TCP_PROXY_DOMAIN" ] && [ -n "$RAILWAY_TCP_PROXY_PORT" ]; then
-            RLWY_DOM="${RAILWAY_TCP_PROXY_DOMAIN}:${RAILWAY_TCP_PROXY_PORT}"
-        fi
 
         cat <<EOF > /tmp/server_stats.json
 {
@@ -184,25 +155,28 @@ echo "[*] Menjalankan Cloudflare Quick Tunnel..."
   "uptime": "$UPTIME",
   "ssh_online": "👥 $SSH_ONLINE Active",
   "user_list_details": "$USER_DETAILS_LIST",
-  "custom_domain": "$CUSTOM_DOM",
-  "railway_proxy": "$RLWY_DOM"
+  "custom_domain": "$CUSTOM_DOM"
 }
 EOF
         sleep 2
     done
 ) &
 
-# 🔥 JALANKAN WEB DASHBOARD PANEL NODE.JS DI PORT 8081
+# =================================================================
+# 🔥 PONDASI SINGKRONISASI VARIABEL TCP PROXY ASLI RAILWAY
+# =================================================================
+# Memberikan waktu tunggu 12 detik agar container sukses terdeteksi "healthy" 
+# dan Railway sempat menginjeksikan variabel proxy aslinya ke container environment.
+echo "[*] Menahan proses Node Panel Engine selama 12 detik demi sinkronisasi Proxy Asli Railway..."
+sleep 12
+
 echo "[*] Memulai Web Dashboard Panel (Node.js Engine) di Port 8081..."
 export D="${D}"
 export SNI="${SNI}"
-export RAILWAY_TCP_PROXY_DOMAIN="${RAILWAY_TCP_PROXY_DOMAIN}"
-export RAILWAY_TCP_PROXY_PORT="${RAILWAY_TCP_PROXY_PORT}"
 node index.js &
 
 sleep 2
 
-# =================================================================
 echo "[*] Memulai Muxer Utama (JavaScript)..."
 export PORT="$PUBLIC_PORT"
 export SSL_TARGET_PORT="$SSL_INTERNAL_PORT"
